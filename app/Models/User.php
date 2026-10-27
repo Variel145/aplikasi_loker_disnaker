@@ -69,7 +69,7 @@ class User extends Authenticatable
     // ========================================
 
     /**
-     * Cek apakah user adalah admin
+     * Cek apakah user adalah admin atau super_admin
      */
     public function isAdmin(): bool
     {
@@ -82,6 +82,14 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';
+    }
+
+    /**
+     * Cek apakah user adalah pencari kerja
+     */
+    public function isJobSeeker(): bool
+    {
+        return $this->role === 'pencari_kerja';
     }
 
     /**
