@@ -2,47 +2,93 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use Illuminate\Http\Request;
 use Laravel\Socialite\Facades\Socialite;
-use App\Models\User;
-use Illuminate\Support\Facades\Auth;
 
 class GoogleController extends Controller
 {
-    // Mengarahkan user ke halaman login Google
-    public function redirectToGoogle()
+    /**
+     * Redirect user ke Google OAuth
+     */
+    public function redirect()
     {
         return Socialite::driver('google')->redirect();
     }
 
-    // Menangani callback dari Google setelah user login
-    public function handleGoogleCallback()
+    /**
+     * Google OAuth Callback
+     * Handle user registration/login via Google
+     */
+    public function callback()
     {
         try {
             $googleUser = Socialite::driver('google')->user();
-            
-            // Cari user berdasarkan google_id atau email
-            $user = User::where('email', $googleUser->email)->first();
+
+            // Find atau create user
+            $user = User::where('google_id', $googleUser->getId())->first();
 
             if ($user) {
-                // Jika user sudah ada, update google_id (jika belum ada) dan login
-                $user->update(['google_id' => $googleUser->id]);
-                Auth::login($user);
-            } else {
-                // Jika user belum ada, buat user baru
-                $newUser = User::create([
-                    'name' => $googleUser->name,
-                    'email' => $googleUser->email,
-                    'google_id' => $googleUser->id,
-                    'password' => bcrypt('123456dummy') // Password dummy
+                // User sudah ada, hanya update info
+                $user->update([
+                    'name' => $googleUser->getName(),
+                    'email' => $googleUser->getEmail(),
                 ]);
-                Auth::login($newUser);
+            } else {
+                // User baru - create dengan default role
+                $user = User::create([
+                    'name' => $googleUser->getName(),
+                    'email' => $googleUser->getEmail(),
+                    'google_id' => $googleUser->getId(),
+                    'email_verified_at' => now(),
+                    'password' => bcrypt(uniqid()), // Random password (tidak dipakai)
+                    'role' => 'pencari_kerja',      // ← DEFAULT ROLE UNTUK USER BARU
+                    'age_confirmed' => false,
+                ]);
+
+                \Log::info('New user created via Google OAuth', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ]);
             }
 
-            return redirect()->intended('/dashboard'); // Arahkan ke dashboard/home
-            
+            // Login user
+            auth()->login($user, remember: true);
+
+            // Redirect berdasarkan role
+            if ($user->isAdmin()) {
+                return redirect('/admin/dashboard')->with('success', 'Welcome Admin! ' . $user->name);
+            } else {
+                return redirect('/dashboard')->with('success', 'Welcome, ' . $user->name);
+            }
+
         } catch (\Exception $e) {
-            return redirect('/login')->with('error', 'Gagal login dengan Google');
+            \Log::error('Google OAuth error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            return redirect('/')->with('error', 'Google login failed. Please try again.');
         }
+    }
+
+    /**
+     * Logout user
+     */
+    public function logout(Request $request)
+    {
+        auth()->logout();
+
+        // Invalidate session
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        \Log::info('User logged out', [
+            'user_id' => auth()->id(),
+            'timestamp' => now(),
+        ]);
+
+        return redirect('/')->with('success', 'Logged out successfully');
     }
 }
